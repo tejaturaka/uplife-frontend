@@ -16,7 +16,8 @@ export default function AdminDashboard() {
   const [filterType, setFilterType] = useState("all"); 
   const [editingId, setEditingId] = useState(null); 
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ type: 'agent', name: '', email: '', state: '', dist: '', mandal: '', password: '' });
+  
+  const [form, setForm] = useState({ type: 'user', name: '', email: '', state: '', dist: '', mandal: '', password: '' });
 
   useEffect(() => { fetchLocations().then(setLocations); fetchData(); }, []);
 
@@ -28,7 +29,8 @@ export default function AdminDashboard() {
   };
 
   const handleOpenModal = (type) => {
-    setForm({ type, name: '', email: '', state: '', dist: '', mandal: '', password: '' });
+    setEditingId(null);
+    setForm({ type: type, name: '', email: '', state: '', dist: '', mandal: '', password: '' });
     setShowModal(true);
   };
 
@@ -40,19 +42,81 @@ export default function AdminDashboard() {
 
   const cancelEdit = () => { setEditingId(null); setShowModal(false); };
 
+  const filteredItems = filterType === 'all' ? [...db.agents, ...db.users] : filterType === 'agent' ? db.agents : filterType === 'user' ? db.users : filterType === 'pending' ? db.users.filter(u => u.claimStatus >= 0 && u.claimStatus < 3) : filterType === 'settled' ? db.users.filter(u => u.claimStatus === 3) : db.users.filter(u => u.claimStatus === -1);
+
+  // --- LOGIC FIX: SPECIFIC STAGE UPGRADE ---
+  const handleStageUpgrade = async (user) => {
+    // 1. Force current status to be a number (handle nulls)
+    const currentStage = parseInt(user.claimStatus || 0, 10);
+    const nextStage = currentStage + 1;
+    
+    let statusMessage = "";
+
+    // 2. Assign Name based on Next Stage
+    if (nextStage === 1) statusMessage = "STAGE 1 COMPLETED";
+    else if (nextStage === 2) statusMessage = "STAGE 2 COMPLETED";
+    else if (nextStage === 3) statusMessage = "SETTLED";
+    else return; // Stop if already settled
+
+    // 3. Confirm
+    if(!window.confirm(`Upgrade Claim to: ${statusMessage}?`)) return;
+
+    try {
+        // 4. Send Request
+        await axios.post(`${API_BASE}/api/users/register`, { 
+            ...user, 
+            claimStatus: nextStage, 
+            statusMessage: statusMessage 
+        });
+        alert(`Success! Status is now: ${statusMessage}`);
+        fetchData();
+    } catch (error) {
+        alert("Network Error: Could not update status.");
+    }
+  };
+
+  const rejectClaim = async (user) => {
+      if(!window.confirm("Are you sure you want to REJECT this claim?")) return;
+      try {
+        await axios.post(`${API_BASE}/api/users/register`, { ...user, claimStatus: -1, statusMessage: "REJECTED" });
+        fetchData();
+      } catch (error) { alert("Failed to reject."); }
+  };
+
+  const handleDelete = async (id) => {
+    if(window.confirm("Delete this user?")) { 
+        try { await axios.delete(`${API_BASE}/api/users/${id}`); fetchData(); } 
+        catch(e) { alert("Delete failed"); }
+    }
+  };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    try {
+        const payload = { ...form, id: editingId || "", role: form.type, claimStatus: editingId ? undefined : 0, statusMessage: editingId ? undefined : "PENDING", createdBy: "ADMIN_MASTER" };
+        const res = await axios.post(`${API_BASE}/api/users/register`, payload);
+        alert(editingId ? "Updated Successfully" : `SUCCESS! Generated ID: ${res.data.id}`);
+        cancelEdit(); 
+        fetchData();
+    } catch(err) { alert("Registration Failed."); }
+  };
+
+  // --- VISUAL HELPERS ---
+  const getStatusInfo = (status) => {
+      const s = parseInt(status || 0, 10);
+      if (s === -1) return { label: 'REJECTED', color: 'text-red-500 bg-red-50' };
+      if (s === 3) return { label: 'SETTLED', color: 'text-green-600 bg-green-50' };
+      if (s === 2) return { label: 'STAGE 2 DONE', color: 'text-purple-600 bg-purple-50' };
+      if (s === 1) return { label: 'STAGE 1 DONE', color: 'text-blue-600 bg-blue-50' };
+      return { label: 'PENDING', color: 'text-[#00ced1] bg-teal-50' };
+  };
+
+  // Stats Logic
   const stats = {
     agents: db.agents.length, customers: db.users.length,
     pending: db.users.filter(u => u.claimStatus >= 0 && u.claimStatus < 3).length,
     settled: db.users.filter(u => u.claimStatus === 3).length, 
     rejected: db.users.filter(u => u.claimStatus === -1).length
-  };
-
-  const filteredItems = filterType === 'all' ? [...db.agents, ...db.users] : filterType === 'agent' ? db.agents : filterType === 'user' ? db.users : filterType === 'pending' ? db.users.filter(u => u.claimStatus >= 0 && u.claimStatus < 3) : filterType === 'settled' ? db.users.filter(u => u.claimStatus === 3) : db.users.filter(u => u.claimStatus === -1);
-
-  const updateStatus = async (user, next, msg) => {
-    if(!window.confirm(`Update to: ${msg}?`)) return;
-    await axios.post(`${API_BASE}/api/users/register`, { ...user, claimStatus: next, statusMessage: msg });
-    fetchData();
   };
 
   return (
@@ -93,52 +157,64 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-[4rem] shadow-2xl p-12 border border-white">
             <h3 className="font-black text-3xl capitalize text-slate-900 mb-10">Directory View: {filterType}</h3>
             <div className="grid gap-4">
-                {filteredItems.map(item => (
-                    <div key={item.id} className="flex justify-between items-center p-8 bg-[#fcfdfe] rounded-[2.5rem] border border-slate-50 hover:border-[#00ced1] transition-all">
-                        
-                        {/* LEFT SECTION: Avatar, Name and ID */}
+                {filteredItems.map(item => {
+                    const statusInfo = getStatusInfo(item.claimStatus); 
+                    return (
+                    <div key={item.id} className="flex justify-between items-center p-6 bg-[#fcfdfe] rounded-[2.5rem] border border-slate-50 hover:border-[#00ced1] transition-all">
                         <div className="flex items-center gap-6 w-1/2">
                             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl shrink-0 ${item.role === 'agent' ? 'bg-teal-50 text-[#00ced1]' : 'bg-indigo-50 text-indigo-600'}`}>
                                 {item.name ? item.name.charAt(0).toUpperCase() : 'U'}
                             </div>
                             <div className="text-left">
-                                {/* NAME and ID on same line */}
-                                <div className="flex items-center gap-3">
-                                  <h2 className="font-black text-2xl text-slate-900">{item.name}</h2>
-                                  <span className="bg-slate-200 text-slate-700 font-mono text-xs font-bold px-2 py-1 rounded border border-slate-300">
-                                    ID: {item.id}
-                                  </span>
+                                <p className="font-black text-2xl text-slate-900">{item.name}</p>
+                                <div className="flex flex-col gap-1 mt-1">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1"><MapPin size={12}/> {item.mandal}, {item.dist}</p>
+                                    <div className="bg-slate-100 px-3 py-1 rounded-md w-fit border border-slate-200">
+                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider mr-2">ID:</span>
+                                        <span className="text-sm font-bold text-[#00ced1] font-mono">{item.id || "PROCESSING..."}</span>
+                                    </div>
                                 </div>
-                                <p className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1 mt-1">
-                                    <MapPin size={12}/> {item.mandal}, {item.dist}
-                                </p>
                             </div>
                         </div>
 
-                        {/* RIGHT SECTION: Status and Buttons */}
                         <div className="flex items-center gap-6 justify-end w-1/2">
-                            {item.role === 'user' && item.claimStatus !== -1 && (
+                            {/* ACTION BUTTONS */}
+                            {item.role === 'user' && item.claimStatus !== -1 && item.claimStatus < 3 && (
                                 <div className="flex gap-2 bg-white p-2 rounded-2xl border border-slate-50">
-                                    <button onClick={() => updateStatus(item, item.claimStatus + 1, item.claimStatus + 1 === 3 ? "SETTLED" : "STAGE_DONE")} className="p-3 bg-[#00ced1] text-white rounded-xl hover:scale-110 transition-transform"><ArrowUpCircle size={22}/></button>
-                                    <button onClick={() => updateStatus(item, -1, "REJECTED")} className="p-3 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform"><XCircle size={22}/></button>
+                                    {/* THIS IS THE FIXED ARROW BUTTON */}
+                                    <button 
+                                        onClick={() => handleStageUpgrade(item)} 
+                                        className="p-3 bg-[#00ced1] text-white rounded-xl hover:scale-110 transition-transform cursor-pointer shadow-sm"
+                                        title="Move to Next Stage"
+                                    >
+                                        <ArrowUpCircle size={22}/>
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={() => rejectClaim(item)} 
+                                        className="p-3 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform cursor-pointer shadow-sm"
+                                        title="Reject Claim"
+                                    >
+                                        <XCircle size={22}/>
+                                    </button>
                                 </div>
                             )}
                             
                             {/* STATUS BADGE */}
                             <div className="text-right">
                                 <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Status</p>
-                                <span className={`text-sm font-black uppercase tracking-widest ${item.claimStatus === -1 ? 'text-red-500' : item.claimStatus === 3 ? 'text-green-600' : 'text-[#00ced1]'}`}>
-                                    {item.claimStatus === -1 ? 'REJECTED' : (item.claimStatus === 3 ? 'SETTLED' : 'PENDING')}
-                                </span>
+                                <p className={`text-sm font-black uppercase tracking-widest ${statusInfo.color.split(' ')[0]}`}>
+                                    {statusInfo.label}
+                                </p>
                             </div>
-
+                            
                             <div className="flex gap-3 pl-6 border-l">
                                 <button onClick={() => startEdit(item)} className="p-3 bg-white text-slate-400 rounded-xl border hover:text-[#00ced1] hover:border-[#00ced1] transition-all"><Edit3 size={18}/></button>
-                                <button onClick={async () => { if(window.confirm("Delete?")) { await axios.delete(`${API_BASE}/api/users/${item.id}`); fetchData(); }}} className="p-3 bg-white text-slate-400 rounded-xl border hover:text-red-500 hover:border-red-500 transition-all"><Trash2 size={18}/></button>
+                                <button onClick={() => handleDelete(item.id)} className="p-3 bg-white text-slate-400 rounded-xl border hover:text-red-500 hover:border-red-500 transition-all"><Trash2 size={18}/></button>
                             </div>
                         </div>
                     </div>
-                ))}
+                )})}
             </div>
         </div>
       </main>
@@ -149,16 +225,8 @@ export default function AdminDashboard() {
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white w-full max-w-lg rounded-[4rem] p-12 shadow-3xl border border-white text-left relative overflow-hidden">
                 <button onClick={cancelEdit} className="absolute top-10 right-10 p-3 bg-slate-50 hover:bg-red-50 hover:text-red-500 rounded-2xl transition-all cursor-pointer text-slate-400"><X size={24}/></button>
                 <h2 className="text-4xl font-black text-slate-900 mb-2 tracking-tighter">{editingId ? 'Update' : 'Register'} <span className={form.type === 'agent' ? 'text-[#00ced1]' : 'text-indigo-600'}>{form.type === 'agent' ? 'Agent' : 'Customer'}</span></h2>
-                <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-10">Generates 10-Char Location Based ID</p>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  try {
-                    const res = await axios.post(`${API_BASE}/api/users/register`, { ...form, id: editingId || "", role: form.type, claimStatus: editingId ? undefined : 0, statusMessage: editingId ? undefined : "PENDING", createdBy: "ADMIN_MASTER" });
-                    alert(`Registry Sync Successful.\nGenerated ID: ${res.data.id}`); 
-                    cancelEdit(); 
-                    fetchData();
-                  } catch(err) { alert("Registration Failed"); }
-                }} className="space-y-4">
+                <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mb-10">{form.type === 'agent' ? "Will generate: DADADA0001 (Location)" : "Will generate: 0000000001 (Sequential)"}</p>
+                <form onSubmit={handleFormSubmit} className="space-y-4">
                   <input placeholder="Name" required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-[#00ced1] outline-none" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
                   <input type="email" placeholder="Gmail" required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-[#00ced1] outline-none" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
                   <div className="grid grid-cols-2 gap-4">
@@ -167,7 +235,7 @@ export default function AdminDashboard() {
                   </div>
                   <select disabled={!form.dist} className="w-full p-5 bg-slate-50 rounded-2xl font-bold outline-none" value={form.mandal} onChange={e => setForm({...form, mandal: e.target.value})} required><option value="">Select Mandal</option>{mandals.map(m => <option key={m} value={m}>{m}</option>)}</select>
                   <input type="password" placeholder="Password" required className="w-full p-5 bg-slate-50 rounded-2xl font-bold border-2 border-transparent focus:border-[#00ced1] outline-none" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
-                  <button className={`w-full py-7 rounded-[2.5rem] font-black text-lg shadow-2xl transition-all mt-6 ${form.type === 'agent' ? 'bg-[#00ced1] text-white' : 'bg-indigo-600 text-white'}`}>{editingId ? "Update Record" : "Generate & Save"}</button>
+                  <button type="submit" className={`w-full py-7 rounded-[2.5rem] font-black text-lg shadow-2xl transition-all mt-6 cursor-pointer ${form.type === 'agent' ? 'bg-[#00ced1] text-white' : 'bg-indigo-600 text-white'}`}>{editingId ? "Update Record" : "Generate & Save"}</button>
                 </form>
             </motion.div>
           </div>

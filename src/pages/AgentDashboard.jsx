@@ -31,7 +31,16 @@ export default function AgentDashboard() {
 
   const startEdit = (user) => {
     setEditingId(user.id);
-    setForm({ name: user.name, email: user.email, password: user.password, state: user.state, dist: user.dist, mandal: user.mandal, claimStatus: user.claimStatus, statusMessage: user.statusMessage });
+    setForm({ 
+        name: user.name, 
+        email: user.email, 
+        password: user.password, 
+        state: user.state, 
+        dist: user.dist, 
+        mandal: user.mandal, 
+        claimStatus: user.claimStatus, 
+        statusMessage: user.statusMessage 
+    });
     setMandals(getMandals(user.dist));
   };
 
@@ -46,15 +55,26 @@ export default function AgentDashboard() {
         });
         
         if(!editingId) {
-            alert(`Customer Registered Successfully!\n\nGENERATED ID: ${res.data.id}`);
+            alert(`SUCCESS! Customer Generated ID:\n\n${res.data.id}`);
+        } else {
+            alert("Updated Successfully");
         }
         
         setEditingId(null); 
         setForm({ name: '', email: '', password: '', state: '', dist: '', mandal: '', claimStatus: 0, statusMessage: "PENDING" }); 
         fetchClients();
     } catch (err) {
-        alert("Error registering customer.");
+        alert("Action Failed. Please check internet connection.");
     }
+  };
+
+  const handleDelete = async (id) => {
+      if(window.confirm("Delete this customer?")) { 
+          try {
+            await axios.delete(`${API_BASE}/api/users/${id}`); 
+            fetchClients();
+          } catch(e) { alert("Delete failed"); }
+      }
   };
 
   return (
@@ -85,8 +105,8 @@ export default function AgentDashboard() {
                   </div>
                   <select disabled={!form.dist} className="w-full p-5 bg-slate-50 rounded-2xl font-bold outline-none" value={form.mandal} onChange={e => setForm({...form, mandal: e.target.value})} required><option value="">Select Mandal</option>{mandals.map(m => <option key={m} value={m}>{m}</option>)}</select>
                   <input type="password" placeholder="Password" required className="w-full p-5 bg-slate-50 rounded-2xl font-bold outline-none" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
-                  <button className="w-full py-6 rounded-3xl font-black shadow-2xl bg-slate-900 text-white cursor-pointer hover:bg-black transition-all">{editingId ? "Save Changes" : "Generate Client Node"}</button>
-                  {!editingId && <p className="text-center text-[10px] text-slate-400 font-bold uppercase">ID generated based on State/Dist/Mandal selection</p>}
+                  <button type="submit" className="w-full py-6 rounded-3xl font-black shadow-2xl bg-slate-900 text-white cursor-pointer hover:bg-black transition-all">{editingId ? "Save Changes" : "Generate Client Node"}</button>
+                  {!editingId && <p className="text-center text-[10px] text-slate-400 font-bold uppercase">Format: 10-Digit Sequential ID</p>}
               </form>
             </div>
 
@@ -96,17 +116,23 @@ export default function AgentDashboard() {
                   {clientList.map(user => (
                       <div key={user.id} className="flex justify-between items-center p-8 bg-slate-50 rounded-[2.5rem] border-2 border-transparent hover:border-[#00ced1] transition-all">
                         <div className="text-left">
-                            <div className="flex items-center gap-3">
-                                <p className="font-black text-2xl text-slate-900">{user.name}</p>
-                                {/* ID BADGE */}
-                                <span className="bg-slate-200 text-slate-700 font-mono text-xs font-bold px-2 py-1 rounded border border-slate-300">ID: {user.id}</span>
+                            <p className="font-black text-2xl text-slate-900">{user.name}</p>
+                            
+                            {/* LOCATION & ID */}
+                            <div className="flex flex-col gap-1 mt-2">
+                                <p className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1"><MapPin size={12}/> {user.mandal}, {user.dist}, {user.state}</p>
+                                <div className="bg-slate-100 px-3 py-1 rounded-md w-fit border border-slate-200">
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider mr-2">ID:</span>
+                                    <span className="text-sm font-bold text-[#00ced1] font-mono">{user.id}</span>
+                                </div>
                             </div>
-                            <p className="text-[10px] font-black text-slate-400 mt-2 uppercase flex items-center gap-1"><MapPin size={12}/> {user.mandal}, {user.dist}, {user.state}</p>
                         </div>
                         <div className="flex gap-4 items-center">
-                            <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${user.claimStatus === 3 ? 'bg-green-100 text-green-600' : user.claimStatus === -1 ? 'bg-red-100 text-red-500' : 'bg-blue-100 text-blue-600'}`}>{user.claimStatus === -1 ? 'REJECTED' : (user.claimStatus === 3 ? 'SETTLED' : 'PENDING')}</span>
+                             <div className="text-right mr-4">
+                                <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${user.claimStatus === 3 ? 'bg-green-100 text-green-600' : user.claimStatus === -1 ? 'bg-red-100 text-red-500' : 'bg-blue-100 text-blue-600'}`}>{user.claimStatus === -1 ? 'REJECTED' : (user.claimStatus === 3 ? 'SETTLED' : 'PENDING')}</span>
+                             </div>
                             <button onClick={() => startEdit(user)} className="p-4 bg-white text-[#00ced1] rounded-2xl border shadow-sm"><Edit3 size={20}/></button>
-                            <button onClick={async () => { if(window.confirm("Delete?")) { await axios.delete(`${API_BASE}/api/users/${user.id}`); fetchClients(); }}} className="p-4 bg-white text-red-500 rounded-2xl border shadow-sm"><Trash2 size={20}/></button>
+                            <button onClick={() => handleDelete(user.id)} className="p-4 bg-white text-red-500 rounded-2xl border shadow-sm"><Trash2 size={20}/></button>
                         </div>
                       </div>
                   ))}
